@@ -1,13 +1,8 @@
 import dataclasses
 
 import pyarrow as pa
+from pyspark.sql import types as spark_types
 
 
-class DataType:
-    """Superclass of the DataTypes that are supported"""
-    pass
-
-
-@dataclasses.dataclass(frozen=True)
-def ArrowDataType(DataType):
-    arrow_type: pa.DataType
+SPARK_BYTE_TYPE = spark_types.ByteType()
+SPARK_SHORT_TYPE = spark_types.ShortType()
