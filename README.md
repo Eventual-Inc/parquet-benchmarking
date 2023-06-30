@@ -16,4 +16,9 @@ Next, run the inspection script:
 python parquet_benchmarking/inspectpq/__main__.py data/sample.parquet
 ```
 
-The above outputs a JSON for pretty-printing in the console. To output a TSV format instead which is easier to use to copy into a spreadsheet, you may want to use the ` --output tsv` option.
+Available options:
+
+```bash
+`--output=tsv`: outputs data in a TSV format instead which is easier for copying data into a spreadsheet
+`--human-readable`: uses human-readable suffixes in sizes for bytes instead, which is easier to read in a spreadsheet
+```
