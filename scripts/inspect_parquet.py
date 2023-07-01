@@ -85,17 +85,21 @@ def inspect_file(
         # Grab all Pages
         page_headers: list[PageHeader] = []
         for ccm in column_chunk_metadata:
-            start, end = (ccm.data_page_offset, ccm.data_page_offset + ccm.total_compressed_size)
-            ptr = start
-            
-            while ptr < end:
-                f.seek(ptr)
+            f.seek(ccm.data_page_offset)
+
+            # Iterate until all rows are read
+            read_values = 0
+            while read_values < ccm.num_values:
                 page_header = PageHeader()
                 page_header.read(protocol_factory.getProtocol(TFileObjectTransport(f)))
                 page_headers.append(page_header)
+                f.seek(page_header.compressed_page_size, 1)
 
-                # TODO(jay): Figure out how to seek to the next page - we need to check all the pages
-                break
+                # Increment row pointer
+                if page_header.type == PageType.DATA_PAGE:
+                    read_values += page_header.data_page_header.num_values
+                elif page_header.type == PageType.DATA_PAGE_V2:
+                    read_values += page_header.data_page_header_v2.num_values
 
         FEAT_PAGE_data_page_v2 = any([ph.type == PageType.DATA_PAGE_V2 for ph in page_headers])
         FEAT_PAGE_page_crc_checksum = any([ph.crc is not None for ph in page_headers])
