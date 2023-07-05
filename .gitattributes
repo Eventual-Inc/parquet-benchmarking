@@ -1,0 +1,7 @@
+data/alltypes_dictionary.parquet filter=lfs diff=lfs merge=lfs -text
+data/alltypes_plain.parquet filter=lfs diff=lfs merge=lfs -text
+data/alltypes_plain.snappy.parquet filter=lfs diff=lfs merge=lfs -text
+data/alltypes_tiny_pages.parquet filter=lfs diff=lfs merge=lfs -text
+data/alltypes_tiny_pages_plain.parquet filter=lfs diff=lfs merge=lfs -text
+data/binary.parquet filter=lfs diff=lfs merge=lfs -text
+data/small.parquet filter=lfs diff=lfs merge=lfs -text
