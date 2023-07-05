@@ -3,6 +3,7 @@ import argparse
 import os
 from typing import Any
 import json
+import pathlib
 
 from parquet_benchmarking.parquet_thrift.ttypes import FileMetaData, RowGroup, ColumnChunk, PageHeader, Encoding, CompressionCodec, PageType
 from thrift.protocol.TCompactProtocol import TCompactProtocolFactory
@@ -150,17 +151,20 @@ def inspect_file(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("file", help="Local path to the file to be inspected")
+    parser.add_argument("paths", help="Local path(s) to the files to be inspected", nargs="+")
     parser.add_argument("--output-format", help="Output one of [json|tsv]", default="json")
     args = parser.parse_args()
+    inspected_data = [{"filepath": str(fpath), **inspect_file(str(fpath))} for fpath in args.paths]
 
-    inspected_data = inspect_file(args.file)
+    if len(inspected_data) == 0:
+        raise ValueError(f"No files selected for inspection at: {args.path}")
 
     if args.output_format == "json":
         print(json.dumps(inspected_data, indent=2))
     elif args.output_format == "tsv":
-        print("\t".join(inspected_data.keys()))
-        print("\t".join([json.dumps(v) for v in inspected_data.values()]))
+        print("\t".join(inspected_data[0].keys()))
+        for data in inspected_data:
+            print("\t".join([json.dumps(v) for v in data.values()]))
     else:
         raise NotImplementedError(f"Unsupported output_format: {args.output_format}")
 
