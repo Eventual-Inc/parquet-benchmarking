@@ -18,7 +18,8 @@ def inspect_file(
 
         # Parquet files all end with b"PAR1"
         f.seek(-4, 2)
-        assert f.read().decode("utf-8") == "PAR1"
+        assert f.read().decode("utf-8") == "PAR1", \
+            f"Encountered file at {path} that does not have b`PAR1` footer - this is either not a Parquet file or may be encrypted"
 
         # Parse FileMetaData thrift message
         f.seek(-4 - 4, 2)
