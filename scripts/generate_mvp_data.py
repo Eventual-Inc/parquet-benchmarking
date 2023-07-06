@@ -7,8 +7,8 @@ def generate_pyarrow(
     dest: str,
 ):
     tbl = pa.Table.from_pydict({
-        "a": pa.array(list(range(100)), type=pa.int64()),
-        "b": pa.array([chr(i) * i for i in range(100)], type=pa.string()),
+        "a": pa.array([None if i % 10 == 0 else i for i in range(100)], type=pa.int64()),
+        "b": pa.array([None if i % 10 == 0 else chr(i) * i for i in range(100)], type=pa.string()),
     })
     papq.write_table(
         tbl,
