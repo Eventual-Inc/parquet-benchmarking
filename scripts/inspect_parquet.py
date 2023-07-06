@@ -46,7 +46,8 @@ def get_statistics(metadata: FileMetaData) -> dict:
     row_group_sizes_uncompressed = [rg.total_byte_size for rg in row_groups]
     mean_row_group_size_uncompressed = statistics.mean(row_group_sizes_uncompressed)
     stddev_row_group_size_uncompressed = statistics.pstdev(row_group_sizes_uncompressed)
-    row_group_sizes_compressed = [rg.total_compressed_size for rg in row_groups]
+    row_group_columns: list[list[ColumnChunk]] = [rg.columns for rg in row_groups]
+    row_group_sizes_compressed = [sum([col.meta_data.total_compressed_size for col in rgcol]) for rgcol in row_group_columns]
     mean_row_group_sizes_compressed = statistics.mean(row_group_sizes_compressed)
     stddev_row_group_sizes_compressed = statistics.pstdev(row_group_sizes_compressed)
 
