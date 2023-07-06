@@ -1,4 +1,5 @@
--e git+ssh://git@github.com/Eventual-Inc/generate-tables.git@f001f23cf86501c779545397817de79cf06caa24#egg=parquet_benchmarking
+numpy==1.25.0
+-e git+ssh://git@github.com/Eventual-Inc/generate-tables.git@a4dde86fac95c6bf57ab9ad72449cebfc7f7907e#egg=parquet_benchmarking
+pyarrow==12.0.0
 six==1.16.0
 thrift==0.16.0
-pyarrow==12.0.0
