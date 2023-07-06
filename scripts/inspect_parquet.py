@@ -3,6 +3,7 @@ import argparse
 import os
 from typing import Any, IO
 import json
+import statistics
 
 from parquet_benchmarking.parquet_thrift.ttypes import FileMetaData, RowGroup, ColumnChunk, PageHeader, Encoding, CompressionCodec, PageType
 from thrift.protocol.TCompactProtocol import TCompactProtocolFactory
@@ -24,22 +25,45 @@ def inspect_file(
         f.seek(-4 - 4, 2)
         file_metadata_size = int.from_bytes(f.read(4), "little")
         f.seek(-4 - 4 - file_metadata_size, 2)
-        # data = f.read(file_metadata_size)
         metadata = FileMetaData()
         metadata.read(protocol_factory.getProtocol(TFileObjectTransport(f)))
 
         features = get_features(metadata, f)
-        stats = get_statistics(metadata, f)
+        stats = get_statistics(metadata)
 
     return {
         "total_file_size": os.stat(path).st_size,
+        "file_metadata_size": file_metadata_size,
         **features,
         **stats,
     }
 
 
-def get_statistics(metadata: FileMetaData, f: IO) -> dict:
-    return {}
+def get_statistics(metadata: FileMetaData) -> dict:
+    num_row_groups = len(metadata.row_groups)
+    row_groups: list[RowGroup] = metadata.row_groups
+
+    row_group_sizes_uncompressed = [rg.total_byte_size for rg in row_groups]
+    mean_row_group_size_uncompressed = statistics.mean(row_group_sizes_uncompressed)
+    stddev_row_group_size_uncompressed = statistics.pstdev(row_group_sizes_uncompressed)
+    row_group_sizes_compressed = [rg.total_compressed_size for rg in row_groups]
+    mean_row_group_sizes_compressed = statistics.mean(row_group_sizes_compressed)
+    stddev_row_group_sizes_compressed = statistics.pstdev(row_group_sizes_compressed)
+
+    row_group_nrows = [rg.num_rows for rg in row_groups]
+    mean_row_group_nrows = statistics.mean(row_group_nrows)
+    stddev_row_group_nrows = statistics.pstdev(row_group_nrows)
+
+    return {
+        # Row group metadata
+        "STATS_num_row_groups": num_row_groups,
+        "STATS_mean_row_group_size_uncompressed": mean_row_group_size_uncompressed,
+        "STATS_stddev_row_group_size_uncompressed": stddev_row_group_size_uncompressed,
+        "STATS_mean_row_group_sizes_compressed": mean_row_group_sizes_compressed,
+        "STATS_stddev_row_group_sizes_compressed": stddev_row_group_sizes_compressed,
+        "STATS_mean_row_group_nrows": mean_row_group_nrows,
+        "STATS_stddev_row_group_nrows": stddev_row_group_nrows,
+    }
 
 
 def get_features(metadata: FileMetaData, f: IO) -> dict:
