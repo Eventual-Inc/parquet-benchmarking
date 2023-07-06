@@ -58,7 +58,8 @@ def inspect_file(
         assert all([ccm is not None for ccm in column_chunk_metadata]), "Cannot have empty ColumnChunkMetadata"
         all_encodings = {enc for ccm in column_chunk_metadata for enc in ccm.encodings}
         all_compression_codecs = {ccm.codec for ccm in column_chunk_metadata}
-        FEAT_CCM_bloom_filter = any([(ccm.bloom_filter_length is not None) and (ccm.bloom_filter_offset is not None) for ccm in column_chunk_metadata])
+        FEAT_CCM_bloom_filter_offset = any([ccm.bloom_filter_offset is not None for ccm in column_chunk_metadata])
+        FEAT_CCM_bloom_filter_length = any([ccm.bloom_filter_length is not None for ccm in column_chunk_metadata])
         FEAT_CCM_index_page = any([(ccm.index_page_offset is not None) for ccm in column_chunk_metadata])
         FEAT_CCM_dictionary_page = any([(ccm.dictionary_page_offset is not None) for ccm in column_chunk_metadata])
         FEAT_CCM_key_value_metadata = any([(ccm.key_value_metadata is not None) for ccm in column_chunk_metadata])
@@ -122,7 +123,8 @@ def inspect_file(
         "FEAT_CC_column_index": FEAT_CC_column_index,
         "FEAT_CC_column_crypto_metadata": FEAT_CC_column_crypto_metadata,
         "FEAT_CC_inlined_column_metadata": FEAT_CC_inlined_column_metadata,
-        "FEAT_CCM_bloom_filter": FEAT_CCM_bloom_filter,
+        "FEAT_CCM_bloom_filter_offset": FEAT_CCM_bloom_filter_offset,
+        "FEAT_CCM_bloom_filter_length": FEAT_CCM_bloom_filter_length,
         "FEAT_CCM_index_page": FEAT_CCM_index_page,
         "FEAT_CCM_dictionary_page": FEAT_CCM_dictionary_page,
         "FEAT_CCM_key_value_metadata": FEAT_CCM_key_value_metadata,
