@@ -4,8 +4,9 @@ import os
 from typing import Any, IO
 import json
 import statistics
+import functools
 
-from parquet_benchmarking.parquet_thrift.ttypes import FileMetaData, RowGroup, ColumnChunk, PageHeader, Encoding, CompressionCodec, PageType
+from parquet_benchmarking.parquet_thrift.ttypes import FileMetaData, RowGroup, ColumnChunk, ColumnMetaData, PageHeader, Encoding, CompressionCodec, PageType, LogicalType, Type, ConvertedType, SchemaElement
 from thrift.protocol.TCompactProtocol import TCompactProtocolFactory
 from thrift.transport.TTransport import TFileObjectTransport
 
@@ -30,12 +31,99 @@ def inspect_file(
 
         features = get_features(metadata, f)
         stats = get_statistics(metadata)
+        column_stats = get_column_statistics(metadata, f)
 
     return {
         "total_file_size": os.stat(path).st_size,
         "file_metadata_size": file_metadata_size,
         **features,
         **stats,
+        **column_stats,
+    }
+
+
+def get_column_statistics(metadata: FileMetaData, f: IO) -> dict:
+    schema: dict[str, SchemaElement] = {schema_element.name: schema_element for schema_element in metadata.schema[1:]}
+    column_chunk_mean_compressed_size_bytes = []
+    column_chunk_stddev_compressed_size_bytes = []
+    column_chunk_max_compressed_size_bytes = []
+    column_chunk_min_compressed_size_bytes = []
+    column_chunk_mean_uncompressed_size_bytes = []
+    column_chunk_stddev_uncompressed_size_bytes = []
+    column_chunk_max_uncompressed_size_bytes = []
+    column_chunk_min_uncompressed_size_bytes = []
+    column_page_mean_compressed_size_bytes = []
+    column_page_stddev_compressed_size_bytes = []
+    column_page_max_compressed_size_bytes = []
+    column_page_min_compressed_size_bytes = []
+    column_page_min_uncompressed_size_bytes = []
+    column_page_max_uncompressed_size_bytes = []
+    column_page_stddev_uncompressed_size_bytes = []
+    column_page_mean_uncompressed_size_bytes = []
+    column_page_mean_num = []
+    column_page_stddev_num = []
+    column_page_max_num = []
+    column_page_min_num = []
+
+    for i, _ in enumerate(schema):
+        row_groups: list[RowGroup] = metadata.row_groups
+        chunks: list[ColumnChunk] = [rg.columns[i] for rg in row_groups]
+        page_headers: list[list[PageHeader]] = [_get_data_page_headers(cc.meta_data, f) for cc in chunks]
+
+        compressed_sizes = [cc.meta_data.total_compressed_size for cc in chunks]
+        column_chunk_mean_compressed_size_bytes.append(statistics.mean(compressed_sizes))
+        column_chunk_stddev_compressed_size_bytes.append(statistics.pstdev(compressed_sizes))
+        column_chunk_max_compressed_size_bytes.append(max(compressed_sizes))
+        column_chunk_min_compressed_size_bytes.append(min(compressed_sizes))
+
+        uncompressed_sizes = [cc.meta_data.total_uncompressed_size for cc in chunks]
+        column_chunk_mean_uncompressed_size_bytes.append(statistics.mean(uncompressed_sizes))
+        column_chunk_stddev_uncompressed_size_bytes.append(statistics.pstdev(uncompressed_sizes))
+        column_chunk_max_uncompressed_size_bytes.append(max(uncompressed_sizes))
+        column_chunk_min_uncompressed_size_bytes.append(min(uncompressed_sizes))
+
+        num_pages = [len(headers) for headers in page_headers]
+        column_page_mean_num.append(statistics.mean(num_pages))
+        column_page_stddev_num.append(statistics.pstdev(num_pages))
+        column_page_max_num.append(max(num_pages))
+        column_page_min_num.append(min(num_pages))
+
+        compressed_page_sizes = [header.compressed_page_size for headers in page_headers for header in headers]
+        column_page_mean_compressed_size_bytes.append(statistics.mean(compressed_page_sizes))
+        column_page_stddev_compressed_size_bytes.append(statistics.pstdev(compressed_page_sizes))
+        column_page_max_compressed_size_bytes.append(max(compressed_page_sizes))
+        column_page_min_compressed_size_bytes.append(min(compressed_page_sizes))
+
+        uncompressed_page_sizes = [header.uncompressed_page_size for headers in page_headers for header in headers]
+        column_page_mean_uncompressed_size_bytes.append(statistics.mean(uncompressed_page_sizes))
+        column_page_stddev_uncompressed_size_bytes.append(statistics.pstdev(uncompressed_page_sizes))
+        column_page_max_uncompressed_size_bytes.append(max(uncompressed_page_sizes))
+        column_page_min_uncompressed_size_bytes.append(min(uncompressed_page_sizes))
+
+    return {
+        # Column chunk stats
+        "STATS_column_chunk_mean_compressed_size_bytes": [round(x, 2) for x in column_chunk_mean_compressed_size_bytes],
+        "STATS_column_chunk_stddev_compressed_size_bytes": [round(x, 2) for x in column_chunk_stddev_compressed_size_bytes],
+        "STATS_column_chunk_max_compressed_size_bytes": column_chunk_max_compressed_size_bytes,
+        "STATS_column_chunk_min_compressed_size_bytes": column_chunk_min_compressed_size_bytes,
+        "STATS_column_chunk_mean_uncompressed_size_bytes": [round(x, 2) for x in column_chunk_mean_uncompressed_size_bytes],
+        "STATS_column_chunk_stddev_uncompressed_size_bytes": [round(x, 2) for x in column_chunk_stddev_uncompressed_size_bytes],
+        "STATS_column_chunk_max_uncompressed_size_bytes": column_chunk_max_uncompressed_size_bytes,
+        "STATS_column_chunk_min_uncompressed_size_bytes": column_chunk_min_uncompressed_size_bytes,
+
+        # Page-level stats
+        "STATS_column_page_mean_num": [round(x, 2) for x in column_page_mean_num],
+        "STATS_column_page_stddev_num": [round(x, 2) for x in column_page_stddev_num],
+        "STATS_column_page_max_num": column_page_max_num,
+        "STATS_column_page_min_num": column_page_min_num,
+        "STATS_column_page_mean_compressed_size_bytes": [round(x, 2) for x in column_page_mean_compressed_size_bytes],
+        "STATS_column_page_stddev_compressed_size_bytes": [round(x, 2) for x in column_page_stddev_compressed_size_bytes],
+        "STATS_column_page_max_compressed_size_bytes": column_page_max_compressed_size_bytes,
+        "STATS_column_page_min_compressed_size_bytes": column_page_min_compressed_size_bytes,
+        "STATS_column_page_mean_uncompressed_size_bytes": [round(x, 2) for x in column_page_mean_uncompressed_size_bytes],
+        "STATS_column_page_stddev_uncompressed_size_bytes": [round(x, 2) for x in column_page_stddev_uncompressed_size_bytes],
+        "STATS_column_page_max_uncompressed_size_bytes": column_page_max_uncompressed_size_bytes,
+        "STATS_column_page_min_uncompressed_size_bytes": column_page_min_uncompressed_size_bytes,
     }
 
 
@@ -46,30 +134,40 @@ def get_statistics(metadata: FileMetaData) -> dict:
     row_group_sizes_uncompressed = [rg.total_byte_size for rg in row_groups]
     mean_row_group_size_uncompressed = statistics.mean(row_group_sizes_uncompressed)
     stddev_row_group_size_uncompressed = statistics.pstdev(row_group_sizes_uncompressed)
+    max_row_group_size_uncompressed = max(row_group_sizes_uncompressed)
+    min_row_group_size_uncompressed = min(row_group_sizes_uncompressed)
     row_group_columns: list[list[ColumnChunk]] = [rg.columns for rg in row_groups]
     row_group_sizes_compressed = [sum([col.meta_data.total_compressed_size for col in rgcol]) for rgcol in row_group_columns]
     mean_row_group_sizes_compressed = statistics.mean(row_group_sizes_compressed)
     stddev_row_group_sizes_compressed = statistics.pstdev(row_group_sizes_compressed)
+    max_row_group_sizes_compressed = max(row_group_sizes_compressed)
+    min_row_group_sizes_compressed = min(row_group_sizes_compressed)
 
     row_group_nrows = [rg.num_rows for rg in row_groups]
     mean_row_group_nrows = statistics.mean(row_group_nrows)
     stddev_row_group_nrows = statistics.pstdev(row_group_nrows)
+    max_row_group_nrows = max(row_group_nrows)
+    min_row_group_nrows = min(row_group_nrows)
 
     return {
         # Row group metadata
         "STATS_num_row_groups": num_row_groups,
-        "STATS_mean_row_group_size_uncompressed": mean_row_group_size_uncompressed,
-        "STATS_stddev_row_group_size_uncompressed": stddev_row_group_size_uncompressed,
-        "STATS_mean_row_group_sizes_compressed": mean_row_group_sizes_compressed,
-        "STATS_stddev_row_group_sizes_compressed": stddev_row_group_sizes_compressed,
-        "STATS_mean_row_group_nrows": mean_row_group_nrows,
-        "STATS_stddev_row_group_nrows": stddev_row_group_nrows,
+        "STATS_mean_row_group_size_uncompressed": round(mean_row_group_size_uncompressed, 2),
+        "STATS_stddev_row_group_size_uncompressed": round(stddev_row_group_size_uncompressed, 2),
+        "STATS_max_row_group_size_uncompressed": max_row_group_size_uncompressed,
+        "STATS_min_row_group_size_uncompressed": min_row_group_size_uncompressed,
+        "STATS_mean_row_group_sizes_compressed": round(mean_row_group_sizes_compressed, 2),
+        "STATS_stddev_row_group_sizes_compressed": round(stddev_row_group_sizes_compressed, 2),
+        "STATS_max_row_group_sizes_compressed": max_row_group_sizes_compressed,
+        "STATS_min_row_group_sizes_compressed": min_row_group_sizes_compressed,
+        "STATS_mean_row_group_nrows": round(mean_row_group_nrows, 2),
+        "STATS_stddev_row_group_nrows": round(stddev_row_group_nrows, 2),
+        "STATS_max_row_group_nrows": max_row_group_nrows,
+        "STATS_min_row_group_nrows": min_row_group_nrows,
     }
 
 
 def get_features(metadata: FileMetaData, f: IO) -> dict:
-    protocol_factory = TCompactProtocolFactory()
-
     # Grab row group features
     row_groups: list[RowGroup]  = metadata.row_groups
     FEAT_RG_sorting_columns = any([rg.sorting_columns is not None for rg in row_groups])
@@ -127,23 +225,7 @@ def get_features(metadata: FileMetaData, f: IO) -> dict:
     FEAT_CCM_compression_codec_LZ4_RAW = CompressionCodec.LZ4_RAW in all_compression_codecs
 
     # Grab all Pages
-    page_headers: list[PageHeader] = []
-    for ccm in column_chunk_metadata:
-        f.seek(ccm.data_page_offset)
-
-        # Iterate until all rows are read
-        read_values = 0
-        while read_values < ccm.num_values:
-            page_header = PageHeader()
-            page_header.read(protocol_factory.getProtocol(TFileObjectTransport(f)))
-            page_headers.append(page_header)
-            f.seek(page_header.compressed_page_size, 1)
-
-            # Increment row pointer
-            if page_header.type == PageType.DATA_PAGE:
-                read_values += page_header.data_page_header.num_values
-            elif page_header.type == PageType.DATA_PAGE_V2:
-                read_values += page_header.data_page_header_v2.num_values
+    page_headers = [headers for ccm in column_chunk_metadata for headers in _get_data_page_headers(ccm, f)]
 
     FEAT_PAGE_data_page_v2 = any([ph.type == PageType.DATA_PAGE_V2 for ph in page_headers])
     FEAT_PAGE_page_crc_checksum = any([ph.crc is not None for ph in page_headers])
@@ -190,6 +272,30 @@ def get_features(metadata: FileMetaData, f: IO) -> dict:
         "FEAT_PAGE_data_page_v2": FEAT_PAGE_data_page_v2,
         "FEAT_PAGE_page_crc_checksum": FEAT_PAGE_page_crc_checksum,
     }
+
+
+def _get_data_page_headers(ccm: ColumnMetaData, f: IO) -> list[PageHeader]:
+    protocol_factory = TCompactProtocolFactory()
+
+    # Grab all Pages for the column
+    page_headers: list[PageHeader] = []
+    f.seek(ccm.data_page_offset)
+
+    # Iterate until all rows are read
+    read_values = 0
+    while read_values < ccm.num_values:
+        page_header = PageHeader()
+        page_header.read(protocol_factory.getProtocol(TFileObjectTransport(f)))
+        page_headers.append(page_header)
+        f.seek(page_header.compressed_page_size, 1)
+
+        # Increment row pointer
+        if page_header.type == PageType.DATA_PAGE:
+            read_values += page_header.data_page_header.num_values
+        elif page_header.type == PageType.DATA_PAGE_V2:
+            read_values += page_header.data_page_header_v2.num_values
+
+    return page_headers
 
 
 def main():
