@@ -43,7 +43,7 @@ def inspect_file(
 
 
 def get_column_statistics(metadata: FileMetaData, f: IO) -> dict:
-    schema: dict[str, SchemaElement] = {schema_element.name: schema_element for schema_element in metadata.schema[1:]}
+    schema: dict[str, SchemaElement] = {schema_element.name: schema_element for schema_element in metadata.schema if schema_element.num_children is None}
     column_chunk_mean_compressed_size_bytes = []
     column_chunk_stddev_compressed_size_bytes = []
     column_chunk_max_compressed_size_bytes = []
