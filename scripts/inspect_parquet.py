@@ -12,12 +12,19 @@ from thrift.protocol.TCompactProtocol import TCompactProtocolFactory
 from thrift.transport.TTransport import TFileObjectTransport
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass
 class Stat:
     min: Any
     max: Any
     mean: Any
     stddev: Any
+
+    def __post_init__(self):
+        rounded_float_fields = ["min", "max", "mean", "stddev"]
+        for f in rounded_float_fields:
+            if isinstance(getattr(self, f), float):
+                setattr(self, f, round(getattr(self, f), 2))
+
 
 
 def _logical_type_to_string(logical_type: LogicalType) -> str:
