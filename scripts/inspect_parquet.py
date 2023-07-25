@@ -4,11 +4,30 @@ import os
 from typing import Any, IO
 import json
 import statistics
-import functools
+import tabulate
+import dataclasses
 
 from parquet_benchmarking.parquet_thrift.ttypes import FileMetaData, RowGroup, ColumnChunk, ColumnMetaData, PageHeader, Encoding, CompressionCodec, PageType, LogicalType, Type, ConvertedType, SchemaElement
 from thrift.protocol.TCompactProtocol import TCompactProtocolFactory
 from thrift.transport.TTransport import TFileObjectTransport
+
+
+@dataclasses.dataclass(frozen=True)
+class Stat:
+    min: Any
+    max: Any
+    mean: Any
+    stddev: Any
+
+
+def _logical_type_to_string(logical_type: LogicalType) -> str:
+    if logical_type is None:
+        return str(logical_type)
+    for field in ["STRING", "MAP", "LIST", "ENUM", "DECIMAL", "DATE", "TIME", "TIMESTAMP", "INTEGER", "UNKNOWN", "JSON", "BSON", "UUID"]:
+        oneof = getattr(logical_type, field)
+        if oneof is not None:
+            return str(oneof)
+    raise NotImplementedError(f"Failed to convert logical type to string: {logical_type}")
 
 
 def inspect_file(
@@ -44,26 +63,15 @@ def inspect_file(
 
 def get_column_statistics(metadata: FileMetaData, f: IO) -> dict:
     schema: dict[str, SchemaElement] = {schema_element.name: schema_element for schema_element in metadata.schema if schema_element.num_children is None}
-    column_chunk_mean_compressed_size_bytes = []
-    column_chunk_stddev_compressed_size_bytes = []
-    column_chunk_max_compressed_size_bytes = []
-    column_chunk_min_compressed_size_bytes = []
-    column_chunk_mean_uncompressed_size_bytes = []
-    column_chunk_stddev_uncompressed_size_bytes = []
-    column_chunk_max_uncompressed_size_bytes = []
-    column_chunk_min_uncompressed_size_bytes = []
-    column_page_mean_compressed_size_bytes = []
-    column_page_stddev_compressed_size_bytes = []
-    column_page_max_compressed_size_bytes = []
-    column_page_min_compressed_size_bytes = []
-    column_page_min_uncompressed_size_bytes = []
-    column_page_max_uncompressed_size_bytes = []
-    column_page_stddev_uncompressed_size_bytes = []
-    column_page_mean_uncompressed_size_bytes = []
-    column_page_mean_num = []
-    column_page_stddev_num = []
-    column_page_max_num = []
-    column_page_min_num = []
+    column_chunk_compressed_size_bytes = []
+    column_chunk_uncompressed_size_bytes = []
+    column_page_num = []
+    column_page_compressed_size_bytes = []
+    column_page_uncompressed_size_bytes = []
+
+    column_names = [fname for fname in schema]
+    column_logical_types = [_logical_type_to_string(schema[fname].logicalType) for fname in schema]
+    column_physical_types = [schema[fname].type for fname in schema]
 
     for i, _ in enumerate(schema):
         row_groups: list[RowGroup] = metadata.row_groups
@@ -71,59 +79,63 @@ def get_column_statistics(metadata: FileMetaData, f: IO) -> dict:
         page_headers: list[list[PageHeader]] = [_get_data_page_headers(cc.meta_data, f) for cc in chunks]
 
         compressed_sizes = [cc.meta_data.total_compressed_size for cc in chunks]
-        column_chunk_mean_compressed_size_bytes.append(statistics.mean(compressed_sizes))
-        column_chunk_stddev_compressed_size_bytes.append(statistics.pstdev(compressed_sizes))
-        column_chunk_max_compressed_size_bytes.append(max(compressed_sizes))
-        column_chunk_min_compressed_size_bytes.append(min(compressed_sizes))
+        column_chunk_compressed_size_bytes.append(
+            Stat(
+                mean=statistics.mean(compressed_sizes),
+                stddev=statistics.pstdev(compressed_sizes),
+                max=max(compressed_sizes),
+                min=min(compressed_sizes),
+            )
+        )
 
         uncompressed_sizes = [cc.meta_data.total_uncompressed_size for cc in chunks]
-        column_chunk_mean_uncompressed_size_bytes.append(statistics.mean(uncompressed_sizes))
-        column_chunk_stddev_uncompressed_size_bytes.append(statistics.pstdev(uncompressed_sizes))
-        column_chunk_max_uncompressed_size_bytes.append(max(uncompressed_sizes))
-        column_chunk_min_uncompressed_size_bytes.append(min(uncompressed_sizes))
+        column_chunk_uncompressed_size_bytes.append(
+            Stat(
+                mean=statistics.mean(uncompressed_sizes),
+                stddev=statistics.pstdev(uncompressed_sizes),
+                max=max(uncompressed_sizes),
+                min=min(uncompressed_sizes),
+            )
+        )
 
         num_pages = [len(headers) for headers in page_headers]
-        column_page_mean_num.append(statistics.mean(num_pages))
-        column_page_stddev_num.append(statistics.pstdev(num_pages))
-        column_page_max_num.append(max(num_pages))
-        column_page_min_num.append(min(num_pages))
+        column_page_num.append(Stat(
+            mean=statistics.mean(num_pages),
+            stddev=statistics.pstdev(num_pages),
+            max=max(num_pages),
+            min=min(num_pages),
+        ))
 
         compressed_page_sizes = [header.compressed_page_size for headers in page_headers for header in headers]
-        column_page_mean_compressed_size_bytes.append(statistics.mean(compressed_page_sizes))
-        column_page_stddev_compressed_size_bytes.append(statistics.pstdev(compressed_page_sizes))
-        column_page_max_compressed_size_bytes.append(max(compressed_page_sizes))
-        column_page_min_compressed_size_bytes.append(min(compressed_page_sizes))
+        column_page_compressed_size_bytes.append(Stat(
+            mean=statistics.mean(compressed_page_sizes),
+            stddev=statistics.pstdev(compressed_page_sizes),
+            max=max(compressed_page_sizes),
+            min=min(compressed_page_sizes),
+        ))
 
         uncompressed_page_sizes = [header.uncompressed_page_size for headers in page_headers for header in headers]
-        column_page_mean_uncompressed_size_bytes.append(statistics.mean(uncompressed_page_sizes))
-        column_page_stddev_uncompressed_size_bytes.append(statistics.pstdev(uncompressed_page_sizes))
-        column_page_max_uncompressed_size_bytes.append(max(uncompressed_page_sizes))
-        column_page_min_uncompressed_size_bytes.append(min(uncompressed_page_sizes))
+        column_page_uncompressed_size_bytes.append(Stat(
+            mean=statistics.mean(uncompressed_page_sizes),
+            stddev=statistics.pstdev(uncompressed_page_sizes),
+            max=max(uncompressed_page_sizes),
+            min=min(uncompressed_page_sizes),
+        ))
 
     return {
+        # Column names (private by default) and types
+        "_COLUMN_names": column_names,
+        "COLUMN_logical_types": column_logical_types,
+        "COLUMN_physical_types": column_physical_types,
+
         # Column chunk stats
-        "STATS_column_chunk_mean_compressed_size_bytes": [round(x, 2) for x in column_chunk_mean_compressed_size_bytes],
-        "STATS_column_chunk_stddev_compressed_size_bytes": [round(x, 2) for x in column_chunk_stddev_compressed_size_bytes],
-        "STATS_column_chunk_max_compressed_size_bytes": column_chunk_max_compressed_size_bytes,
-        "STATS_column_chunk_min_compressed_size_bytes": column_chunk_min_compressed_size_bytes,
-        "STATS_column_chunk_mean_uncompressed_size_bytes": [round(x, 2) for x in column_chunk_mean_uncompressed_size_bytes],
-        "STATS_column_chunk_stddev_uncompressed_size_bytes": [round(x, 2) for x in column_chunk_stddev_uncompressed_size_bytes],
-        "STATS_column_chunk_max_uncompressed_size_bytes": column_chunk_max_uncompressed_size_bytes,
-        "STATS_column_chunk_min_uncompressed_size_bytes": column_chunk_min_uncompressed_size_bytes,
+        "STATS_column_chunk_compressed_size_bytes": column_chunk_compressed_size_bytes,
+        "STATS_column_chunk_uncompressed_size_bytes": column_chunk_uncompressed_size_bytes,
 
         # Page-level stats
-        "STATS_column_page_mean_num": [round(x, 2) for x in column_page_mean_num],
-        "STATS_column_page_stddev_num": [round(x, 2) for x in column_page_stddev_num],
-        "STATS_column_page_max_num": column_page_max_num,
-        "STATS_column_page_min_num": column_page_min_num,
-        "STATS_column_page_mean_compressed_size_bytes": [round(x, 2) for x in column_page_mean_compressed_size_bytes],
-        "STATS_column_page_stddev_compressed_size_bytes": [round(x, 2) for x in column_page_stddev_compressed_size_bytes],
-        "STATS_column_page_max_compressed_size_bytes": column_page_max_compressed_size_bytes,
-        "STATS_column_page_min_compressed_size_bytes": column_page_min_compressed_size_bytes,
-        "STATS_column_page_mean_uncompressed_size_bytes": [round(x, 2) for x in column_page_mean_uncompressed_size_bytes],
-        "STATS_column_page_stddev_uncompressed_size_bytes": [round(x, 2) for x in column_page_stddev_uncompressed_size_bytes],
-        "STATS_column_page_max_uncompressed_size_bytes": column_page_max_uncompressed_size_bytes,
-        "STATS_column_page_min_uncompressed_size_bytes": column_page_min_uncompressed_size_bytes,
+        "STATS_column_page_num": column_page_num,
+        "STATS_column_page_compressed_size_bytes": column_page_compressed_size_bytes,
+        "STATS_column_page_uncompressed_size_bytes": column_page_uncompressed_size_bytes,
     }
 
 
@@ -132,38 +144,35 @@ def get_statistics(metadata: FileMetaData) -> dict:
     row_groups: list[RowGroup] = metadata.row_groups
 
     row_group_sizes_uncompressed = [rg.total_byte_size for rg in row_groups]
-    mean_row_group_size_uncompressed = statistics.mean(row_group_sizes_uncompressed)
-    stddev_row_group_size_uncompressed = statistics.pstdev(row_group_sizes_uncompressed)
-    max_row_group_size_uncompressed = max(row_group_sizes_uncompressed)
-    min_row_group_size_uncompressed = min(row_group_sizes_uncompressed)
+    row_group_size_uncompressed_stat = Stat(
+        mean=statistics.mean(row_group_sizes_uncompressed),
+        stddev=statistics.pstdev(row_group_sizes_uncompressed),
+        max=max(row_group_sizes_uncompressed),
+        min=min(row_group_sizes_uncompressed),
+    )
     row_group_columns: list[list[ColumnChunk]] = [rg.columns for rg in row_groups]
     row_group_sizes_compressed = [sum([col.meta_data.total_compressed_size for col in rgcol]) for rgcol in row_group_columns]
-    mean_row_group_sizes_compressed = statistics.mean(row_group_sizes_compressed)
-    stddev_row_group_sizes_compressed = statistics.pstdev(row_group_sizes_compressed)
-    max_row_group_sizes_compressed = max(row_group_sizes_compressed)
-    min_row_group_sizes_compressed = min(row_group_sizes_compressed)
+    row_group_size_compressed_stat = Stat(
+        mean=statistics.mean(row_group_sizes_compressed),
+        stddev=statistics.pstdev(row_group_sizes_compressed),
+        max=max(row_group_sizes_compressed),
+        min=min(row_group_sizes_compressed),
+    )
 
     row_group_nrows = [rg.num_rows for rg in row_groups]
-    mean_row_group_nrows = statistics.mean(row_group_nrows)
-    stddev_row_group_nrows = statistics.pstdev(row_group_nrows)
-    max_row_group_nrows = max(row_group_nrows)
-    min_row_group_nrows = min(row_group_nrows)
+    row_group_nrows_stat = Stat(
+        mean=statistics.mean(row_group_nrows),
+        stddev=statistics.pstdev(row_group_nrows),
+        max=max(row_group_nrows),
+        min=min(row_group_nrows),
+    )
 
     return {
         # Row group metadata
-        "STATS_num_row_groups": num_row_groups,
-        "STATS_mean_row_group_size_uncompressed": round(mean_row_group_size_uncompressed, 2),
-        "STATS_stddev_row_group_size_uncompressed": round(stddev_row_group_size_uncompressed, 2),
-        "STATS_max_row_group_size_uncompressed": max_row_group_size_uncompressed,
-        "STATS_min_row_group_size_uncompressed": min_row_group_size_uncompressed,
-        "STATS_mean_row_group_sizes_compressed": round(mean_row_group_sizes_compressed, 2),
-        "STATS_stddev_row_group_sizes_compressed": round(stddev_row_group_sizes_compressed, 2),
-        "STATS_max_row_group_sizes_compressed": max_row_group_sizes_compressed,
-        "STATS_min_row_group_sizes_compressed": min_row_group_sizes_compressed,
-        "STATS_mean_row_group_nrows": round(mean_row_group_nrows, 2),
-        "STATS_stddev_row_group_nrows": round(stddev_row_group_nrows, 2),
-        "STATS_max_row_group_nrows": max_row_group_nrows,
-        "STATS_min_row_group_nrows": min_row_group_nrows,
+        "STATS_row_group_num": num_row_groups,
+        "STATS_row_group_uncompressed": row_group_size_uncompressed_stat,
+        "STATS_row_group_compressed": row_group_size_compressed_stat,
+        "STATS_row_group_nrows": row_group_nrows_stat,
     }
 
 
@@ -298,24 +307,97 @@ def _get_data_page_headers(ccm: ColumnMetaData, f: IO) -> list[PageHeader]:
     return page_headers
 
 
+def display(inspected_data: list[dict]):
+    for meta in inspected_data:
+        print(f"===== File: {meta['filepath']} =====")
+        general_metadata_keys = [k for k in meta if (not k.startswith("STATS_")) and (not k.startswith("FEAT_"))]
+        feature_keys = [k for k in meta if k.startswith("FEAT_")]
+        rg_stats_keys = [k for k in meta if k.startswith("STATS_row_group")]
+        column_keys = [k for k in meta if k.startswith("_COLUMN") or k.startswith("COLUMN")]
+        column_chunk_stats_keys = [k for k in meta if k.startswith("STATS_column_chunk")]
+        column_page_stats_keys = [k for k in meta if k.startswith("STATS_column_page")]
+
+        print("General Metadata:")
+        for k in general_metadata_keys:
+            print(f"    {k}:\t{meta[k]}".expandtabs(30))
+        print("\nFeatures:")
+        for k in feature_keys:
+            print(f"    {k}:\t{meta[k]}".expandtabs(60))
+        print("\nRowgroup Stats:")
+        for k in rg_stats_keys:
+            print(f"    {k}:\t{meta[k]}".expandtabs(30))
+
+        print("\nColumnChunk Stats:")
+        column_data = {
+            k: meta[k] for k in [
+                *column_keys,
+                *column_chunk_stats_keys,
+            ]
+        }
+        print(tabulate.tabulate(column_data, headers=list(column_data.keys())))
+
+        print("\nColumnChunkPage Stats:")
+        column_data = {
+            k: meta[k] for k in [
+                *column_keys,
+                *column_page_stats_keys,
+            ]
+        }
+        print(tabulate.tabulate(column_data, headers=list(column_data.keys())))
+
+
+def clean_private_fields(data: list[dict]):
+    """Cleans up all fields prefixed with _, which are not intended for export to JSON/TSV"""
+    return [{k: d[k] for k in d if not k.startswith("_")} for d in data]
+
+
+def expand_stats(data: dict):
+    result = {}
+    for k in data:
+        if isinstance(data[k], list):
+            if all(isinstance(x, Stat) for x in data[k]):
+                result[f"{k}_mean"] = [stat.mean for stat in data[k]]
+                result[f"{k}_stddev"] = [stat.stddev for stat in data[k]]
+                result[f"{k}_max"] = [stat.max for stat in data[k]]
+                result[f"{k}_min"] = [stat.min for stat in data[k]]
+            else:
+                result[k] = data[k]
+        elif isinstance(data[k], Stat):
+            result[f"{k}_mean"] = data[k].mean
+            result[f"{k}_stddev"] = data[k].stddev
+            result[f"{k}_max"] = data[k].max
+            result[f"{k}_min"] = data[k].min
+        else:
+            result[k] = data[k]
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("paths", help="Local path(s) to the files to be inspected", nargs="+")
-    parser.add_argument("--output-format", help="Output one of [json|tsv]", default="json")
+    parser.add_argument("--output-format", help="Output one of [json|tsv|human]", default="human")
+    parser.add_argument("--show-private-fields", help="Output private fields (prefixed with _)", default=False, action="store_true")
     args = parser.parse_args()
     inspected_data = [{"filepath": str(fpath), **inspect_file(str(fpath))} for fpath in args.paths]
+
+    if not args.show_private_fields:
+        inspected_data = clean_private_fields(inspected_data)
 
     if len(inspected_data) == 0:
         raise ValueError(f"No files selected for inspection at: {args.path}")
 
-    if args.output_format == "json":
-        print(json.dumps(inspected_data, indent=2))
-    elif args.output_format == "tsv":
-        print("\t".join(inspected_data[0].keys()))
-        for data in inspected_data:
-            print("\t".join([json.dumps(v) for v in data.values()]))
+    if args.output_format == "human":
+        display(inspected_data)
     else:
-        raise NotImplementedError(f"Unsupported output_format: {args.output_format}")
+        inspected_data = [expand_stats(d) for d in inspected_data]
+        if args.output_format == "json":
+            print(json.dumps(inspected_data, indent=2))
+        elif args.output_format == "tsv":
+            print("\t".join(inspected_data[0].keys()))
+            for data in inspected_data:
+                print("\t".join([json.dumps(v) for v in data.values()]))
+        else:
+            raise NotImplementedError(f"Unsupported output_format: {args.output_format}")
 
 
 if __name__ == "__main__":
