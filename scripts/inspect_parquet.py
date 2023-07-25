@@ -30,6 +30,10 @@ def _logical_type_to_string(logical_type: LogicalType) -> str:
     raise NotImplementedError(f"Failed to convert logical type to string: {logical_type}")
 
 
+def _physical_type_to_string(physical_type: int) -> str:
+    return Type._VALUES_TO_NAMES[physical_type]
+
+
 def inspect_file(
     path: str,
 ) -> dict[str, Any]:
@@ -71,7 +75,7 @@ def get_column_statistics(metadata: FileMetaData, f: IO) -> dict:
 
     column_names = [fname for fname in schema]
     column_logical_types = [_logical_type_to_string(schema[fname].logicalType) for fname in schema]
-    column_physical_types = [schema[fname].type for fname in schema]
+    column_physical_types = [_physical_type_to_string(schema[fname].type) for fname in schema]
 
     for i, _ in enumerate(schema):
         row_groups: list[RowGroup] = metadata.row_groups
